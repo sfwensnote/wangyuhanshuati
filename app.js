@@ -1,4 +1,4 @@
-const DATA_URL = './questions.json';
+const DATA_INDEX_URL = './questions/index.json';
 const STORAGE_KEY = 'litiji-practice-v1';
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const $ = (id) => document.getElementById(id);
@@ -278,8 +278,9 @@ function init() {
     if (event.key === 'ArrowLeft' && index > 0) { index--; selected.clear(); renderQuestion(); }
     if (event.key === 'Enter' && event.target === document.body) submitAnswer();
   });
-  fetch(DATA_URL).then(response => { if (!response.ok) throw new Error('题库数据加载失败'); return response.json(); }).then(data => {
-    questions = data.map((q, i) => ({...q, id: q.id || String(i), question: cleanText(q.question), options: q.options.map(cleanText)}));
+  fetch(DATA_INDEX_URL).then(response => { if (!response.ok) throw new Error('题库目录加载失败'); return response.json(); }).then(parts => Promise.all(parts.map(part => fetch(`./questions/${part}`).then(response => { if (!response.ok) throw new Error('题库分片加载失败'); return response.json(); })))).then(data => {
+    const types = {1:'单选',2:'多选',3:'判断'};
+    questions = data.flat().map(([type, question, options, answer, category], i) => ({id:String(i), type:types[type], question:cleanText(question), options:options.map(cleanText), answer, category:category === 0 ? '施工安全实务' : '安全生产法规'}));
     const categories = [...new Set(questions.map(q => q.category))];
     categories.forEach(category => { const option = document.createElement('option'); option.value = category; option.textContent = category; $('category-filter').append(option); });
     updateOverview(); setPool(questions);
