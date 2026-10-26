@@ -246,22 +246,60 @@ function formatRemaining() {
   const seconds = Math.floor((left % 60000) / 1000).toString().padStart(2, '0');
   return { left, label: `${minutes}:${seconds}` };
 }
+function getExamQuotas(practicalPercent) {
+  const practicalTotal = Math.round(80 * practicalPercent / 100);
+  const parts = EXAM_PLAN.map(([type, total], order) => {
+    const exact = practicalTotal * total / 80;
+    const practical = Math.floor(exact);
+    return { type, total, practical, remainder: exact - practical, order };
+  });
+  let unassigned = practicalTotal - parts.reduce((sum, row) => sum + row.practical, 0);
+  [...parts].sort((a, b) => b.remainder - a.remainder || a.order - b.order).slice(0, unassigned).forEach(row => row.practical++);
+  return Object.fromEntries(parts.map(row => [row.type, { practical: row.practical, laws: row.total - row.practical, total: row.total }]));
+}
+function updateExamRatio(value) {
+  const percent = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  state.examRatio = percent;
+  persist();
+  const slider = $('exam-practice-ratio');
+  const number = $('exam-practice-percent');
+  if (!slider || !number) return;
+  slider.value = String(percent); number.value = String(percent);
+  $('practical-percent-label').textContent = `${percent}%`;
+  $('laws-percent-label').textContent = `${100 - percent}%`;
+  const quotas = getExamQuotas(percent);
+  $('exam-quota-rows').innerHTML = EXAM_PLAN.map(([type]) => `<div class="exam-quota-row"><span>${type}</span><b>${quotas[type].practical}</b><b>${quotas[type].laws}</b><span>${quotas[type].total}</span></div>`).join('');
+  $('exam-practical-total').textContent = String(Object.values(quotas).reduce((sum, row) => sum + row.practical, 0));
+  $('exam-laws-total').textContent = String(Object.values(quotas).reduce((sum, row) => sum + row.laws, 0));
+  document.querySelectorAll('[data-exam-ratio]').forEach(button => button.classList.toggle('active', Number(button.dataset.examRatio) === percent));
+}
 function renderExam() {
   if (!questions.length) { $('exam-view').innerHTML = '<div class="exam-empty">题库载入完成后即可开始模拟考试。</div>'; return; }
   if (state.exam?.status === 'active') { renderActiveExam(); return; }
   if (state.exam?.status === 'result') { renderExamResult(state.exam); return; }
   const latest = state.examHistory.at(-1);
-  $('exam-view').innerHTML = `<section class="exam-intro"><div class="exam-intro-copy"><p class="eyebrow"><span class="eyebrow-line"></span>限时实战 · 完整作答后阅卷</p><h2>模拟考试</h2><p>按题库比例随机组卷，闭卷完成 80 道题，再看本场正确率。</p></div><div class="exam-emblem"><span>60</span><small>分钟</small></div></section><section class="exam-specs"><div><strong>80</strong><span>道试题</span></div><div><strong>60</strong><span>分钟限时</span></div><div><strong>100</strong><span>满分</span></div></section><section class="exam-plan"><h3>本场题量</h3><div class="exam-plan-row"><span><i class="plan-single"></i>单选题</span><b>30 题</b></div><div class="exam-plan-row"><span><i class="plan-judge"></i>判断题</span><b>30 题</b></div><div class="exam-plan-row"><span><i class="plan-multiple"></i>多选题</span><b>20 题</b></div><p>每题 1.25 分；答错或未作答均不计分。交卷后显示正确率和逐题对照。</p></section><div class="exam-start-row"><button class="button-primary exam-start" id="start-exam" type="button">开始 60 分钟考试 <span>↗</span></button>${latest ? `<span>上次成绩 <b>${latest.correct}/${latest.total}</b> · 正确率 <b>${Math.round(latest.correct / latest.total * 100)}%</b></span>` : '<span>考试记录只保存在此设备</span>'}</div>`;
+  const practicalAvailable = questions.filter(q => q.category === '施工安全实务').length;
+  const lawsAvailable = questions.filter(q => q.category === '安全生产法规').length;
+  const initialPercent = Number.isInteger(state.examRatio) ? state.examRatio : Math.round(practicalAvailable / questions.length * 100);
+  $('exam-view').innerHTML = `<section class="exam-intro"><div class="exam-intro-copy"><p class="eyebrow"><span class="eyebrow-line"></span>限时实战 · 完整作答后阅卷</p><h2>模拟考试</h2><p>开始前自选实务与法规比例，按题库比例随机组卷，完成 80 道题后查看正确率。</p></div><div class="exam-emblem"><span>60</span><small>分钟</small></div></section><section class="exam-specs"><div><strong>80</strong><span>道试题</span></div><div><strong>60</strong><span>分钟限时</span></div><div><strong>100</strong><span>满分</span></div></section><section class="exam-ratio"><div class="exam-ratio-head"><div><h3>选择本场实务 / 法规比例</h3><p>题库现有实务 ${practicalAvailable} 题 · 法规 ${lawsAvailable} 题</p></div><div class="exam-ratio-values"><span><b id="practical-percent-label">—</b> 实务</span><span><b id="laws-percent-label">—</b> 法规</span></div></div><div class="exam-ratio-controls"><label for="exam-practice-ratio">实务占比</label><input id="exam-practice-ratio" type="range" min="0" max="100" step="1" value="${initialPercent}" aria-label="实务题占比"><label class="ratio-number-label" for="exam-practice-percent"><input id="exam-practice-percent" type="number" min="0" max="100" step="1" value="${initialPercent}"><span>%</span></label></div><div class="exam-ratio-presets"><span>快速选择</span><button type="button" data-exam-ratio="50">50 / 50</button><button type="button" data-exam-ratio="${Math.round(practicalAvailable / questions.length * 100)}">按题库比例</button><button type="button" data-exam-ratio="70">70 / 30</button></div><div class="exam-quota-table"><div class="exam-quota-head"><span>题型</span><span>实务</span><span>法规</span><span>合计</span></div><div id="exam-quota-rows"></div><div class="exam-quota-row exam-quota-total"><strong>总题数</strong><strong id="exam-practical-total">0</strong><strong id="exam-laws-total">0</strong><strong>80</strong></div></div><p class="exam-ratio-note">题型总数固定为单选 30、判断 30、多选 20；各题型按所选比例分配，取整后保证合计 80 题。</p></section><section class="exam-plan"><h3>考试规则</h3><p>每题 1.25 分；答错或未作答均不计分。交卷后显示总正确率、分题型和分科目成绩，以及逐题对照。</p></section><div class="exam-start-row"><button class="button-primary exam-start" id="start-exam" type="button">开始 60 分钟考试 <span>↗</span></button>${latest ? `<span>上次成绩 <b>${latest.correct}/${latest.total}</b> · 正确率 <b>${Math.round(latest.correct / latest.total * 100)}%</b></span>` : '<span>考试记录只保存在此设备</span>'}</div>`;
+  updateExamRatio(initialPercent);
+  $('exam-practice-ratio').addEventListener('input', event => updateExamRatio(event.target.value));
+  $('exam-practice-percent').addEventListener('input', event => updateExamRatio(event.target.value));
+  document.querySelectorAll('[data-exam-ratio]').forEach(button => button.addEventListener('click', () => updateExamRatio(button.dataset.examRatio)));
   $('start-exam').addEventListener('click', startExam);
 }
 function startExam() {
   const ids = [];
-  for (const [type, count] of EXAM_PLAN) {
-    const set = shuffled(questions.filter(q => q.type === type));
-    if (set.length < count) { showToast(`${type}题数量不足，无法组卷`); return; }
-    ids.push(...set.slice(0, count).map(q => q.id));
+  const practicalPercent = Number.isInteger(state.examRatio) ? state.examRatio : 61;
+  const quotas = getExamQuotas(practicalPercent);
+  for (const [type] of EXAM_PLAN) {
+    for (const [category, count] of [['施工安全实务', quotas[type].practical], ['安全生产法规', quotas[type].laws]]) {
+      const set = shuffled(questions.filter(q => q.type === type && q.category === category));
+      if (set.length < count) { showToast(`${category}的${type}题数量不足，无法按此比例组卷`); return; }
+      ids.push(...set.slice(0, count).map(q => q.id));
+    }
   }
-  state.exam = { status: 'active', startedAt: Date.now(), questionIds: shuffled(ids), answers: {} };
+  state.exam = { status: 'active', startedAt: Date.now(), practicalPercent, quotas, questionIds: shuffled(ids), answers: {} };
   examIndex = 0; persist(); renderExam();
 }
 function renderActiveExam() {
@@ -296,7 +334,11 @@ function finishExam(timeExpired) {
     const subset = items.filter(q => q.type === type);
     return { type, total, correct: subset.filter(isCorrect).length };
   });
-  const result = { status: 'result', startedAt: state.exam.startedAt, completedAt: Date.now(), timeExpired, questionIds: state.exam.questionIds, answers: { ...answers }, total: 80, correct, typeResults };
+  const categoryResults = ['施工安全实务','安全生产法规'].map(category => {
+    const subset = items.filter(q => q.category === category);
+    return { category, total: subset.length, correct: subset.filter(isCorrect).length };
+  });
+  const result = { status: 'result', startedAt: state.exam.startedAt, completedAt: Date.now(), timeExpired, practicalPercent: state.exam.practicalPercent, questionIds: state.exam.questionIds, answers: { ...answers }, total: 80, correct, typeResults, categoryResults };
   state.exam = result;
   state.examHistory.push({ ...result });
   state.examHistory = state.examHistory.slice(-20);
@@ -313,12 +355,17 @@ function renderExamResult(result) {
   const seconds = Math.max(0, Math.round((result.completedAt - result.startedAt) / 1000));
   const duration = `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   const items = result.questionIds.map(id => questions.find(q => q.id === id)).filter(Boolean);
+  const categoryResults = result.categoryResults?.length ? result.categoryResults : ['施工安全实务','安全生产法规'].map(category => {
+    const subset = items.filter(q => q.category === category);
+    return { category, total: subset.length, correct: subset.filter(q => [...(result.answers[q.id] || [])].sort().join('') === correctAnswer(q)).length };
+  });
   const review = items.map((q, i) => {
     const answer = result.answers[q.id] || [];
     const correct = [...answer].sort().join('') === correctAnswer(q);
     return `<article class="exam-review-row ${correct ? 'is-correct' : 'is-wrong'}"><div class="exam-review-top"><span>第 ${i + 1} 题 · ${q.type}</span><b>${correct ? '答对' : '答错'}</b></div><p>${escapeHTML(cleanText(q.question))}</p><div class="exam-review-answer"><span>你的答案：${escapeHTML(selectedAnswerLabel(q, answer))}</span><strong>正确答案：${escapeHTML(answerLabel(q))}</strong></div></article>`;
   }).join('');
-  $('exam-view').innerHTML = `<section class="exam-result-hero"><div><p class="eyebrow"><span class="eyebrow-line"></span>${result.timeExpired ? '考试时间结束 · 已自动交卷' : '考试完成 · 成绩已记录'}</p><h2>本场正确率</h2><p>用完整的一场练习，看看现在掌握得怎么样。</p></div><div class="exam-score"><strong>${accuracy}<small>%</small></strong><span>${result.correct} / ${result.total} 题答对</span></div></section><div class="exam-result-meta"><span>用时 <b>${duration}</b></span><span>答题数 <b>${Object.keys(result.answers).length} / 80</b></span><button class="button-primary" id="restart-exam" type="button">再考一场 <span>↗</span></button></div><section class="exam-breakdown"><h3>分题型成绩</h3>${result.typeResults.map(row => `<div class="exam-breakdown-row"><span>${row.type}题</span><div class="exam-breakdown-track"><i style="width:${Math.round(row.correct / row.total * 100)}%"></i></div><b>${row.correct} / ${row.total}</b><em>${Math.round(row.correct / row.total * 100)}%</em></div>`).join('')}</section><details class="exam-review"><summary>查看 80 道题的作答对照</summary><div class="exam-review-list">${review}</div></details>`;
+  const categoryBreakdown = categoryResults.map(row => `<div class="exam-breakdown-row"><span>${row.category === '施工安全实务' ? '实务' : '法规'}</span><div class="exam-breakdown-track"><i style="width:${row.total ? Math.round(row.correct / row.total * 100) : 0}%"></i></div><b>${row.correct} / ${row.total}</b><em>${row.total ? Math.round(row.correct / row.total * 100) : 0}%</em></div>`).join('');
+  $('exam-view').innerHTML = `<section class="exam-result-hero"><div><p class="eyebrow"><span class="eyebrow-line"></span>${result.timeExpired ? '考试时间结束 · 已自动交卷' : '考试完成 · 成绩已记录'}</p><h2>本场正确率</h2><p>用完整的一场练习，看看现在掌握得怎么样。</p></div><div class="exam-score"><strong>${accuracy}<small>%</small></strong><span>${result.correct} / ${result.total} 题答对</span></div></section><div class="exam-result-meta"><span>用时 <b>${duration}</b></span><span>答题数 <b>${Object.keys(result.answers).length} / 80</b></span><span>实务 / 法规 <b>${categoryResults.map(row => row.total).join(' / ')}</b></span><button class="button-primary" id="restart-exam" type="button">再考一场 <span>↗</span></button></div><section class="exam-breakdown"><h3>分科目正确率</h3>${categoryBreakdown}</section><section class="exam-breakdown exam-type-breakdown"><h3>分题型成绩</h3>${result.typeResults.map(row => `<div class="exam-breakdown-row"><span>${row.type}题</span><div class="exam-breakdown-track"><i style="width:${Math.round(row.correct / row.total * 100)}%"></i></div><b>${row.correct} / ${row.total}</b><em>${Math.round(row.correct / row.total * 100)}%</em></div>`).join('')}</section><details class="exam-review"><summary>查看 80 道题的作答对照</summary><div class="exam-review-list">${review}</div></details>`;
   $('restart-exam').addEventListener('click', startExam);
 }
 function tickExam() {
