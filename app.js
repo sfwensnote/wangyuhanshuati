@@ -306,8 +306,12 @@ function startExam() {
 function renderPausedExam() {
   const answered = Object.keys(state.exam.answers || {}).length;
   const { label } = formatRemaining();
-  $('exam-view').innerHTML = `<section class="exam-paused"><p class="eyebrow"><span class="eyebrow-line"></span>本场已保存</p><h2>考试已暂停</h2><p>已作答 ${answered} / 80 题 · 剩余时间 ${label}</p><p>再次进入时会从第 ${Math.min(80, (state.exam.currentIndex || 0) + 1)} 题继续，答案和计时都已保存在此设备。</p><button class="button-primary" id="resume-exam" type="button">继续考试 <span>↗</span></button></section>`;
+  $('exam-view').innerHTML = `<section class="exam-paused"><p class="eyebrow"><span class="eyebrow-line"></span>本场已保存</p><h2>考试已暂停</h2><p>已作答 ${answered} / 80 题 · 剩余时间 ${label}</p><p>再次进入时会从第 ${Math.min(80, (state.exam.currentIndex || 0) + 1)} 题继续，答案和计时都已保存在此设备。</p><div class="exam-paused-actions"><button class="button-primary" id="resume-exam" type="button">继续考试 <span>↗</span></button><button class="button-secondary" id="restart-paused-exam" type="button">重新开始</button></div></section>`;
   $('resume-exam').addEventListener('click', resumeExam);
+  $('restart-paused-exam').addEventListener('click', () => {
+    if (!window.confirm('重新开始会清除本场已保存的答案，确定重新开始吗？')) return;
+    startExam();
+  });
 }
 function pauseExam() {
   if (state.exam?.status !== 'active') return;
@@ -476,4 +480,3 @@ function init() {
   examClock = window.setInterval(tickExam, 1000);
 }
 init();
-
