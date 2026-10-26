@@ -310,7 +310,9 @@ function renderPausedExam() {
   $('resume-exam').addEventListener('click', resumeExam);
   $('restart-paused-exam').addEventListener('click', () => {
     if (!window.confirm('重新开始会清除本场已保存的答案，确定重新开始吗？')) return;
-    startExam();
+    state.exam = null;
+    persist();
+    renderExam();
   });
 }
 function pauseExam() {
