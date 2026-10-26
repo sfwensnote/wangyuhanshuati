@@ -7,6 +7,7 @@
   <meta name="description" content="根据比武练兵题库整理的个人刷题工具，支持错题复习、收藏和学习统计。">
   <title>砺题 · 个人刷题</title>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./exam.css">
   <script src="./app.js" defer></script>
 </head>
 <body>
@@ -22,6 +23,7 @@
         <button class="nav-item active" data-view="练习"><span class="nav-icon">⌘</span>开始练习</button>
         <button class="nav-item" data-view="错题"><span class="nav-icon">↺</span>错题复习 <span class="nav-count" id="wrong-count">0</span></button>
         <button class="nav-item" data-view="收藏"><span class="nav-icon">☆</span>我的收藏 <span class="nav-count" id="favorite-count">0</span></button>
+        <button class="nav-item" data-view="考试"><span class="nav-icon">◷</span>模拟考试</button>
         <button class="nav-item" data-view="统计"><span class="nav-icon">▥</span>学习统计</button>
       </nav>
 
@@ -92,6 +94,7 @@
           </aside>
         </section>
         <div id="special-view" class="special-view" hidden></div>
+        <section id="exam-view" class="exam-view" hidden aria-live="polite"></section>
         <footer class="page-footer"><span>比武练兵题库 · 个人学习版</span><span>保持专注，持续精进 <i>✳</i></span></footer>
       </div>
     </main>
