@@ -241,7 +241,7 @@ function examItems() {
   return (state.exam?.questionIds || []).map(id => questions.find(q => q.id === id)).filter(Boolean);
 }
 function formatRemaining() {
-  const left = Math.max(0, EXAM_LIMIT_MS - (Date.now() - state.exam.startedAt));
+  const left = Math.max(0, state.exam.status === 'paused' ? state.exam.remainingMs : EXAM_LIMIT_MS - (Date.now() - state.exam.startedAt));
   const minutes = Math.floor(left / 60000).toString().padStart(2, '0');
   const seconds = Math.floor((left % 60000) / 1000).toString().padStart(2, '0');
   return { left, label: `${minutes}:${seconds}` };
@@ -276,6 +276,7 @@ function updateExamRatio(value) {
 function renderExam() {
   if (!questions.length) { $('exam-view').innerHTML = '<div class="exam-empty">题库载入完成后即可开始模拟考试。</div>'; return; }
   if (state.exam?.status === 'active') { renderActiveExam(); return; }
+  if (state.exam?.status === 'paused') { renderPausedExam(); return; }
   if (state.exam?.status === 'result') { renderExamResult(state.exam); return; }
   const latest = state.examHistory.at(-1);
   const practicalAvailable = questions.filter(q => q.category === '施工安全实务').length;
@@ -302,6 +303,29 @@ function startExam() {
   state.exam = { status: 'active', startedAt: Date.now(), practicalPercent, quotas, questionIds: shuffled(ids), answers: {} };
   examIndex = 0; persist(); renderExam();
 }
+function renderPausedExam() {
+  const answered = Object.keys(state.exam.answers || {}).length;
+  const { label } = formatRemaining();
+  $('exam-view').innerHTML = `<section class="exam-paused"><p class="eyebrow"><span class="eyebrow-line"></span>本场已保存</p><h2>考试已暂停</h2><p>已作答 ${answered} / 80 题 · 剩余时间 ${label}</p><p>再次进入时会从第 ${Math.min(80, (state.exam.currentIndex || 0) + 1)} 题继续，答案和计时都已保存在此设备。</p><button class="button-primary" id="resume-exam" type="button">继续考试 <span>↗</span></button></section>`;
+  $('resume-exam').addEventListener('click', resumeExam);
+}
+function pauseExam() {
+  if (state.exam?.status !== 'active') return;
+  state.exam.remainingMs = formatRemaining().left;
+  state.exam.currentIndex = examIndex;
+  state.exam.status = 'paused';
+  persist();
+  renderExam();
+  showToast('本场考试已保存，可以稍后继续');
+}
+function resumeExam() {
+  if (state.exam?.status !== 'paused') return;
+  state.exam.startedAt = Date.now() - (EXAM_LIMIT_MS - state.exam.remainingMs);
+  state.exam.status = 'active';
+  examIndex = Math.max(0, Math.min(79, state.exam.currentIndex || 0));
+  persist();
+  renderActiveExam();
+}
 function renderActiveExam() {
   const items = examItems();
   if (items.length !== 80) { $('exam-view').innerHTML = '<div class="exam-empty">本场题目数据不完整，请重新开始考试。</div>'; return; }
@@ -310,7 +334,7 @@ function renderActiveExam() {
   const answered = Object.keys(state.exam.answers).length;
   const { label } = formatRemaining();
   const letters = LETTERS.slice(0, q.options.length);
-  $('exam-view').innerHTML = `<div class="exam-head"><div><p class="eyebrow"><span class="eyebrow-line"></span>模拟考试 · 第 ${examIndex + 1} / 80 题</p><h2>专注作答</h2></div><div class="exam-timer" id="exam-timer" aria-live="polite"><span>剩余时间</span><strong>${label}</strong></div></div><div class="exam-body"><div class="exam-question-panel"><div class="exam-question-meta"><span>第 ${examIndex + 1} 题</span><span class="question-type">${q.type}</span><span class="exam-answer-state">${state.exam.answers[q.id] ? '已作答' : '待作答'}</span></div><h3>${escapeHTML(cleanText(q.question))}</h3><div class="exam-options">${q.options.map((option, i) => `<button class="option exam-option ${current.has(letters[i]) ? 'selected' : ''}" type="button" data-exam-letter="${letters[i]}" aria-pressed="${current.has(letters[i])}"><span class="option-key">${letters[i]}</span><span>${escapeHTML(cleanText(option))}</span></button>`).join('')}</div><p class="exam-multi-hint">${q.type === '多选' ? '多选题 · 请选择全部正确项' : '选择一个答案'}</p><div class="exam-nav"><button class="button-secondary" id="exam-prev" type="button" ${examIndex === 0 ? 'disabled' : ''}>← 上一题</button><span>${answered} / 80 题已作答</span><button class="button-secondary" id="exam-next" type="button" ${examIndex === 79 ? 'disabled' : ''}>下一题 →</button></div></div><aside class="exam-question-map"><div class="exam-map-heading"><h3>答题卡</h3><span>${answered}/80</span></div>${EXAM_PLAN.map(([type]) => `<div class="exam-map-type">${type}题 <span>${items.filter(x => x.type === type).length}题</span></div><div class="exam-map-grid">${items.map((item, i) => item.type === type ? `<button type="button" class="exam-map-cell ${i === examIndex ? 'current' : ''} ${state.exam.answers[item.id] ? 'answered' : ''}" data-exam-index="${i}" aria-label="第${i + 1}题${state.exam.answers[item.id] ? '已作答' : '未作答'}">${i + 1}</button>` : '').join('')}</div>`).join('')}<button class="button-primary exam-submit" id="finish-exam" type="button" ${answered < 80 ? 'disabled' : ''}>交卷并查看成绩</button><p class="exam-submit-hint">${answered === 80 ? '所有题目已完成，可以交卷。' : `还有 ${80 - answered} 题未作答`}</p></aside></div>`;
+  $('exam-view').innerHTML = `<div class="exam-head"><div><p class="eyebrow"><span class="eyebrow-line"></span>模拟考试 · 第 ${examIndex + 1} / 80 题</p><h2>专注作答</h2></div><div class="exam-head-actions"><div class="exam-timer" id="exam-timer" aria-live="polite"><span>剩余时间</span><strong>${label}</strong></div><button class="button-secondary exam-save" id="save-exam" type="button">保存并退出</button></div></div><div class="exam-body"><div class="exam-question-panel"><div class="exam-question-meta"><span>第 ${examIndex + 1} 题</span><span class="question-type">${q.type}</span><span class="exam-answer-state">${state.exam.answers[q.id] ? '已作答' : '待作答'}</span></div><h3>${escapeHTML(cleanText(q.question))}</h3><div class="exam-options">${q.options.map((option, i) => `<button class="option exam-option ${current.has(letters[i]) ? 'selected' : ''}" type="button" data-exam-letter="${letters[i]}" aria-pressed="${current.has(letters[i])}"><span class="option-key">${letters[i]}</span><span>${escapeHTML(cleanText(option))}</span></button>`).join('')}</div><p class="exam-multi-hint">${q.type === '多选' ? '多选题 · 请选择全部正确项' : '选择一个答案'}</p><div class="exam-nav"><button class="button-secondary" id="exam-prev" type="button" ${examIndex === 0 ? 'disabled' : ''}>← 上一题</button><span>${answered} / 80 题已作答</span><button class="button-secondary" id="exam-next" type="button" ${examIndex === 79 ? 'disabled' : ''}>下一题 →</button></div></div><aside class="exam-question-map"><div class="exam-map-heading"><h3>答题卡</h3><span>${answered}/80</span></div>${EXAM_PLAN.map(([type]) => `<div class="exam-map-type">${type}题 <span>${items.filter(x => x.type === type).length}题</span></div><div class="exam-map-grid">${items.map((item, i) => item.type === type ? `<button type="button" class="exam-map-cell ${i === examIndex ? 'current' : ''} ${state.exam.answers[item.id] ? 'answered' : ''}" data-exam-index="${i}" aria-label="第${i + 1}题${state.exam.answers[item.id] ? '已作答' : '未作答'}">${i + 1}</button>` : '').join('')}</div>`).join('')}<button class="button-primary exam-submit" id="finish-exam" type="button" ${answered < 80 ? 'disabled' : ''}>交卷并查看成绩</button><p class="exam-submit-hint">${answered === 80 ? '所有题目已完成，可以交卷。' : `还有 ${80 - answered} 题未作答`}</p></aside></div>`;
   $('exam-view').querySelectorAll('[data-exam-letter]').forEach(button => button.addEventListener('click', () => {
     const letter = button.dataset.examLetter;
     const selection = new Set(state.exam.answers[q.id] || []);
@@ -319,9 +343,10 @@ function renderActiveExam() {
     if (selection.size) state.exam.answers[q.id] = [...selection].sort(); else delete state.exam.answers[q.id];
     persist(); renderActiveExam();
   }));
-  $('exam-view').querySelectorAll('[data-exam-index]').forEach(button => button.addEventListener('click', () => { examIndex = Number(button.dataset.examIndex); renderActiveExam(); }));
-  $('exam-prev').addEventListener('click', () => { examIndex = Math.max(0, examIndex - 1); renderActiveExam(); });
-  $('exam-next').addEventListener('click', () => { examIndex = Math.min(79, examIndex + 1); renderActiveExam(); });
+  $('exam-view').querySelectorAll('[data-exam-index]').forEach(button => button.addEventListener('click', () => { examIndex = Number(button.dataset.examIndex); state.exam.currentIndex = examIndex; persist(); renderActiveExam(); }));
+  $('exam-prev').addEventListener('click', () => { examIndex = Math.max(0, examIndex - 1); state.exam.currentIndex = examIndex; persist(); renderActiveExam(); });
+  $('exam-next').addEventListener('click', () => { examIndex = Math.min(79, examIndex + 1); state.exam.currentIndex = examIndex; persist(); renderActiveExam(); });
+  $('save-exam').addEventListener('click', pauseExam);
   $('finish-exam').addEventListener('click', () => finishExam(false));
 }
 function finishExam(timeExpired) {
@@ -428,8 +453,8 @@ function init() {
   window.addEventListener('keydown', event => {
     if (event.target.matches('input,select,textarea') || view === '统计') return;
     if (view === '考试' && state.exam?.status === 'active') {
-      if (event.key === 'ArrowRight') { examIndex = Math.min(79, examIndex + 1); renderActiveExam(); }
-      if (event.key === 'ArrowLeft') { examIndex = Math.max(0, examIndex - 1); renderActiveExam(); }
+      if (event.key === 'ArrowRight') { examIndex = Math.min(79, examIndex + 1); state.exam.currentIndex = examIndex; persist(); renderActiveExam(); }
+      if (event.key === 'ArrowLeft') { examIndex = Math.max(0, examIndex - 1); state.exam.currentIndex = examIndex; persist(); renderActiveExam(); }
       return;
     }
     if (event.key === 'ArrowRight' && index < pool.length - 1) { index++; selected.clear(); renderQuestion(); }
